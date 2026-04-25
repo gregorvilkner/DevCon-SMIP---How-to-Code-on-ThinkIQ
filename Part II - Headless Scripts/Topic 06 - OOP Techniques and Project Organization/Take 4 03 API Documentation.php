@@ -1,0 +1,191 @@
+<?php
+
+    use Joomla\CMS\HTML\HTMLHelper;
+
+    $primary_domain = 'https://' . $_SERVER['HTTP_HOST'];
+
+    HTMLHelper::_('script', "$primary_domain/media/com_thinkiq/js/dist/tiq.core.js", array('version' => 'auto', 'relative' => false, 'detectDebug' => false));
+    // HTMLHelper::_('script', "$primary_domain/media/com_thinkiq/js/dist/tiq.tiqGraphQL.js", array('version' => 'auto', 'relative' => false, 'detectDebug' => false));
+    // HTMLHelper::_('script', "$primary_domain/media/com_thinkiq/js/dist/tiq.components.js", array('version' => 'auto', 'relative' => false, 'detectDebug' => false));
+    // HTMLHelper::_('script', "$primary_domain/media/com_thinkiq/js/dist/tiq.charts.js", array('version' => 'auto', 'relative' => false, 'detectDebug' => false));
+
+    require_once 'thinkiq_context.php';
+    $context = new Context();
+
+    $php_api = new TiqUtilities\Model\Script('api_demo.api_demo_api');
+    $php_api_file_name = $php_api->script_file_name;
+
+    // Pulls in the descriptor catalog (apiDemoTools[]) — see api_demo.api_demo_api_tools.
+    TiqUtilities\Model\Script::includeScript('api_demo.api_demo_api_tools');
+
+?>
+
+<div id="app">
+    <div class="row">
+        <div class="col-12">
+            <h1 class="pb-2 pt-2" style="font-size:2.5rem; color:#126181;">
+                {{pageTitle}}
+                <a v-if="true" class="float-end btn btn-sm btn-link mt-2" style="font-size:1rem; color:#126181;" v-bind:href="`/index.php?option=com_modeleditor&view=script&id=${context.std_inputs.script_id}`" target="_blank">source</a>
+            </h1>
+            <hr style="border-color:#126181; border-width:medium;" />
+        </div>
+    </div>
+
+    <template v-for="tool in tools" :key="tool.key">
+        <h1>
+            {{tool.name}}
+            <span v-if="tool.category" class="badge rounded-pill bg-secondary ms-2 align-middle" style="font-size:0.55rem; font-weight:normal;">{{tool.category}}</span>
+            <span class="float-start me-2"><i :class="toolState[tool.key].show ? 'fa fa-caret-up' : 'fa fa-caret-down'" @click="toolState[tool.key].show = !toolState[tool.key].show"></i></span>
+            <span class="h6">{{tool.description}}</span>
+        </h1>
+        <div :hidden="!toolState[tool.key].show">
+
+            <template v-for="inp in tool.inputs" :key="inp.key">
+                <label class="me-2">{{inp.label}}</label>
+                <input :type="inp.type" v-model="toolState[tool.key].inputs[inp.key]" />
+                <br />
+                <pre v-if="inp.showJsonPreview"><code>{{JSON.stringify(ValidateAndReturnJson(toolState[tool.key].inputs[inp.key]), null, 2)}}
+                </code></pre>
+            </template>
+
+            <pre v-if="tool.via === 'graphql' && tool.showQueryPreview"><code>{{PreviewQuery(tool)}}
+            </code></pre>
+
+            <button @click="RunTool(tool)">Click</button>
+            <button @click="ClearTool(tool)">Clear</button>
+
+            <span v-if="tool.output.kind === 'array'"
+                :class="toolState[tool.key].output.length==0 ? '' : 'btn btn-link'"
+                :style="toolState[tool.key].output.length==0 ? '' : 'cursor:pointer;'"
+                @click="CopyToClipboard(toolState[tool.key].output)"
+            >
+                {{toolState[tool.key].output.length}} results.
+            </span>
+            <span v-else-if="tool.output.kind === 'single'"
+                :class="toolState[tool.key].output == null ? '' : 'btn btn-link'"
+                :style="toolState[tool.key].output == null ? '' : 'cursor:pointer;'"
+                @click="CopyToClipboard(toolState[tool.key].output)"
+            >
+                {{toolState[tool.key].output == null ? 'null' : '1 result.'}}
+            </span>
+
+            <pre><code>{{JSON.stringify(toolState[tool.key].output, null, 2)}}
+            </code></pre>
+        </div>
+
+        <hr />
+    </template>
+</div>
+
+<script>
+    var WinDoc = window.document;
+
+    // we need a clipboard so we can copy / paste
+    var clipboard = navigator.clipboard;
+
+    var app = createApp({
+        data() {
+            // Build per-tool reactive state from the descriptor catalog (apiDemoTools).
+            // Each tool gets:  { show, inputs:{...defaults}, output:[]|null }
+            const toolState = {};
+            apiDemoTools.forEach(tool => {
+                const inputs = {};
+                tool.inputs.forEach(inp => { inputs[inp.key] = inp.default ?? ''; });
+                toolState[tool.key] = {
+                    show:   false,
+                    inputs: inputs,
+                    output: tool.output.kind === 'array' ? [] : null
+                };
+            });
+
+            return {
+                pageTitle: 'API Demo - PHP SDK, REST, and GraphQL access to the SMIP',
+                pageTitleShort: 'API Demo Docs',
+                context:     <?php echo json_encode($context)?>,
+                apiFileName: '<?php echo $php_api_file_name; ?>',
+
+                tools:     apiDemoTools,
+                toolState: toolState
+            };
+        },
+        mounted: function(){
+            WinDoc.title = this.pageTitleShort;
+        },
+        methods: {
+
+            // Utility
+            CopyToClipboard: function(a){
+                clipboard.writeText(JSON.stringify(a));
+            },
+
+            ValidateAndReturnJson: function(aText){
+                try{
+                    return JSON.parse(aText);
+                } catch (e){
+                    return "That's not valid json.";
+                }
+            },
+
+            // Read each input through its declared parser and build a named-args
+            // object keyed by argName (or key as a fallback). Used by both runners.
+            ParseInputs: function(tool){
+                const args = {};
+                tool.inputs.forEach(inp => {
+                    const raw = this.toolState[tool.key].inputs[inp.key];
+                    let val;
+                    switch (inp.parse) {
+                        case 'json':   val = JSON.parse(raw); break;
+                        case 'number': val = parseFloat(raw); break;
+                        default:       val = raw;
+                    }
+                    args[inp.argName ?? inp.key] = val;
+                });
+                return args;
+            },
+
+            // Live GraphQL preview — renders the query the runner would send,
+            // or a friendly "(input parse error: …)" if the inputs aren't yet valid.
+            PreviewQuery: function(tool){
+                if (tool.via !== 'graphql' || !tool.showQueryPreview) return '';
+                try { return tool.query(this.ParseInputs(tool)); }
+                catch (e) { return '(input parse error: ' + e.message + ')'; }
+            },
+
+            // Generic invoker — dispatches on tool.via:
+            //   "php"     → tiqJSHelper.invokeScriptAsync(apiFileName, tool.fn, argument)
+            //               argument is null when there are no inputs.
+            //   "graphql" → tiqJSHelper.invokeGraphQLAsync(tool.query(args))
+            //               then tool.transform(response) — defaults to r => r?.data.
+            //   "js"      → tool.handler(args). Pure browser-side; never leaves the page.
+            //               Useful for plumbing/echo-style tools and anything that
+            //               would otherwise be blocked by CORS (see GetPokemon for
+            //               the REST counter-example — that one HAS to go via PHP).
+            RunTool: async function(tool){
+                const args = this.ParseInputs(tool);
+
+                if (tool.via === 'graphql') {
+                    const queryString = tool.query(args);
+                    const response    = await tiqJSHelper.invokeGraphQLAsync(queryString);
+                    const transform   = tool.transform ?? (r => r?.data ?? null);
+                    this.toolState[tool.key].output = transform(response);
+                    return;
+                }
+
+                if (tool.via === 'js') {
+                    this.toolState[tool.key].output = await tool.handler(args);
+                    return;
+                }
+
+                // default path — via: "php"
+                const argument = tool.inputs.length === 0 ? null : args;
+                this.toolState[tool.key].output = await tiqJSHelper.invokeScriptAsync(this.apiFileName, tool.fn, argument);
+            },
+
+            ClearTool: function(tool){
+                this.toolState[tool.key].output = tool.output.kind === 'array' ? [] : null;
+            }
+        }
+    })
+    .mount('#app');
+
+</script>
