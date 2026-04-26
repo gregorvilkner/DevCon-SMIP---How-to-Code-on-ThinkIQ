@@ -54,6 +54,25 @@
             <button @click="RunTool(tool)">Click</button>
             <button @click="ClearTool(tool)">Clear</button>
 
+            <!--
+              Optional image strip. Driven by tool.render.images (array of {label, path}).
+              Each <img> only renders if its path resolves on the current output, so
+              partial responses degrade gracefully. The JSON dump below still shows
+              the full payload — these are an additive view, not a replacement.
+            -->
+            <div v-if="tool.render && tool.render.images && toolState[tool.key].output"
+                 class="d-flex flex-wrap gap-3 my-2">
+                <template v-for="img in tool.render.images" :key="img.label">
+                    <figure v-if="ResolvePath(toolState[tool.key].output, img.path)"
+                            class="text-center m-0">
+                        <img :src="ResolvePath(toolState[tool.key].output, img.path)"
+                             :alt="img.label"
+                             style="max-height: 160px; image-rendering: pixelated;" />
+                        <figcaption class="small text-muted">{{img.label}}</figcaption>
+                    </figure>
+                </template>
+            </div>
+
             <span v-if="tool.output.kind === 'array'"
                 :class="toolState[tool.key].output.length==0 ? '' : 'btn btn-link'"
                 :style="toolState[tool.key].output.length==0 ? '' : 'cursor:pointer;'"
@@ -124,6 +143,21 @@
                 } catch (e){
                     return "That's not valid json.";
                 }
+            },
+
+            // Walk a path (array of string keys) into a nested object. Returns
+            // null at the first missing/null hop, so the caller can use the
+            // result directly in a v-if without an extra null check.
+            // Path is an array of segments (not a dotted string) so keys with
+            // hyphens like "official-artwork" don't need any escaping.
+            ResolvePath: function(obj, path){
+                if (!obj || !Array.isArray(path)) return null;
+                let cur = obj;
+                for (const key of path) {
+                    if (cur == null) return null;
+                    cur = cur[key];
+                }
+                return cur || null;
             },
 
             // Read each input through its declared parser and build a named-args

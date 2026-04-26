@@ -30,6 +30,15 @@
 //                    "array"        — array result; clear → []; counter "{N} results."
 //                    "single"       — single object or null; clear → null; counter.
 //                    "single-quiet" — single value; clear → null; no counter (Echo-style).
+//   render       — optional. Declarative hints for how to display the output above
+//                  the raw JSON dump. The JSON dump is always shown — render is
+//                  additive. Currently supported:
+//                    images — array of { label, path } where path is a list of
+//                             keys into the output object (e.g. ["sprites","front_default"]).
+//                             Missing paths are silently skipped, so half-populated
+//                             responses don't break the layout. Path is an array
+//                             of segments (not a dotted string) so keys with
+//                             hyphens like "official-artwork" work without escaping.
 //
 // PHP-specific fields (via: "php"):
 //   fn           — string passed as the second argument to invokeScriptAsync;
@@ -163,7 +172,15 @@ var apiDemoTools = [
               default: 'pikachu',
               parse: "raw" }
         ],
-        output: { kind: "single" }
+        output: { kind: "single" },
+        render: {
+            images: [
+                { label: "Default",        path: ["sprites", "front_default"] },
+                { label: "Shiny",          path: ["sprites", "front_shiny"] },
+                { label: "Back",           path: ["sprites", "back_default"] },
+                { label: "Official art",   path: ["sprites", "other", "official-artwork", "front_default"] }
+            ]
+        }
     }
 
 ];
