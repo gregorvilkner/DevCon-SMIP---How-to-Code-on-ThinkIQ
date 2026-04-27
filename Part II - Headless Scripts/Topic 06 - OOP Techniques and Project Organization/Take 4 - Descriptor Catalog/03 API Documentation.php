@@ -12,11 +12,11 @@
     require_once 'thinkiq_context.php';
     $context = new Context();
 
-    $php_api = new TiqUtilities\Model\Script('api_demo.api_demo_api');
+    $php_api = new TiqUtilities\Model\Script('api_demo_take_4.api_template');
     $php_api_file_name = $php_api->script_file_name;
 
-    // Pulls in the descriptor catalog (apiDemoTools[]) — see api_demo.api_demo_api_tools.
-    TiqUtilities\Model\Script::includeScript('api_demo.api_demo_api_tools');
+    // Pulls in the descriptor catalog (apiDemoTools[]) — see api_demo_take_4.api_tools.
+    TiqUtilities\Model\Script::includeScript('api_demo_take_4.api_tools');
 
 ?>
 
@@ -206,7 +206,23 @@
                 }
 
                 if (tool.via === 'js') {
-                    this.toolState[tool.key].output = await tool.handler(args);
+                    // tool.handler can be:
+                    //   • an inline function          — call it directly.
+                    //   • a string method name        — look it up in apiDemoMethods
+                    //                                   (the "escape hatch" block below
+                    //                                   apiDemoTools, where the user
+                    //                                   writes free-form async logic:
+                    //                                   multiple GraphQL round-trips,
+                    //                                   joins, post-processing, etc.).
+                    const handler = (typeof tool.handler === 'string')
+                        ? (typeof apiDemoMethods === 'object' ? apiDemoMethods[tool.handler] : null)
+                        : tool.handler;
+                    if (typeof handler !== 'function') {
+                        console.warn('Tool', tool.key, 'has no resolvable handler:', tool.handler);
+                        this.toolState[tool.key].output = null;
+                        return;
+                    }
+                    this.toolState[tool.key].output = await handler(args);
                     return;
                 }
 

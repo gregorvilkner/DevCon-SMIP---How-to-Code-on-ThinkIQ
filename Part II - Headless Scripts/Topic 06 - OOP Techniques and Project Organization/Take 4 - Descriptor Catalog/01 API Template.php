@@ -5,7 +5,7 @@
 require_once 'thinkiq_context.php';
 $context = new Context();
 
-TiqUtilities\Model\Script::includeScript('api_demo.guzzle_client');
+TiqUtilities\Model\Script::includeScript('api_demo_take_4.guzzle_client');
 
 use Joomla\CMS\Response\JsonResponse; // Used for returning data to the client.
 if (!defined('JPATH_BASE')) define('JPATH_BASE', dirname(__DIR__));
@@ -31,24 +31,27 @@ function GetPokemon($nameOrId){
 // GraphQL tool: same query, same shape; the round-trip happens in PHP rather
 // than in the browser. Useful when the caller is itself a server-side script
 // (cron, integration job, …) that has no browser to do GraphQL from.
-function GetLibraryByNameViaPhp($displayName){
+//
+// Case-insensitive substring search on displayName. Returns every library
+// whose displayName lowercase contains the search string lowercase.
+function SearchLibraryByNameViaPhp($search){
     $aClient   = new GraphQL();
-    $escaped   = json_encode($displayName);   // safely quotes/escapes for a GraphQL string literal
+    $escaped   = json_encode($search);   // safely quotes/escapes for a GraphQL string literal
     $gqlQuery  = "
-        query GetLibraryByName {
-            libraries(condition: { displayName: $escaped }) {
+        query SearchLibraryByName {
+            libraries(filter: { displayName: { includesInsensitive: $escaped } }) {
                 id
                 displayName
             }
         }
     ";
     $response = $aClient->MakeRequest($gqlQuery);
-    // PostGraphile returns an array under data.libraries; collapse to first match.
-    return isset($response->data->libraries[0]) ? $response->data->libraries[0] : null;
+    // PostGraphile returns an array under data.libraries; pass the whole list through.
+    return isset($response->data->libraries) ? $response->data->libraries : [];
 }
 
 // Note: each tool that has a doublet ("…ViaPhp" + JS twin) is paired up with a
-// browser-side counterpart in api_demo_api_tools (via:"graphql" or via:"js").
+// browser-side counterpart in api_demo_take_4.api_tools (via:"graphql" or via:"js").
 // GetPokemon is intentionally NOT doubled — the JS path would (in general)
 // hit CORS for a third-party REST API.
 
@@ -62,9 +65,9 @@ switch ($f){
         $returnObject = GetPokemon($aNameOrId);
         die(new JsonResponse($returnObject));
         break;
-    case "GetLibraryByNameViaPhp":
-        $aDisplayName = $a->displayName;
-        $returnObject = GetLibraryByNameViaPhp($aDisplayName);
+    case "SearchLibraryByNameViaPhp":
+        $aSearch      = $a->search;
+        $returnObject = SearchLibraryByNameViaPhp($aSearch);
         die(new JsonResponse($returnObject));
         break;
 }
